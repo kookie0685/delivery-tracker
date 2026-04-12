@@ -88,6 +88,8 @@ export type DeliveryTrackerState = {
   deliveryProofs: DeliveryProof[];
 };
 
+export type DeliveryTrackerStateBase = Omit<DeliveryTrackerState, "customerLedger">;
+
 export type DeliveryInput = {
   vehicleId: string;
   customerId: string;
@@ -123,7 +125,7 @@ const makeId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice
 const sumBy = <T>(items: T[], getValue: (item: T) => number) =>
   items.reduce((sum, item) => sum + getValue(item), 0);
 
-const buildCustomerLedger = (state: Omit<DeliveryTrackerState, "customerLedger">): CustomerLedger[] =>
+export const buildCustomerLedger = (state: DeliveryTrackerStateBase): CustomerLedger[] =>
   state.customers.map((customer) => {
     const customerStopIds = state.deliveryStops
       .filter((stop) => stop.customerId === customer.id)
@@ -151,7 +153,7 @@ const buildCustomerLedger = (state: Omit<DeliveryTrackerState, "customerLedger">
     };
   });
 
-const syncInvoiceStatuses = (
+export const syncInvoiceStatuses = (
   invoices: InvoiceReference[],
   payments: Payment[],
   credits: CreditNote[],
@@ -305,6 +307,23 @@ export const createSeedState = (): DeliveryTrackerState => {
   };
 };
 
+export const finalizeDeliveryTrackerState = (state: DeliveryTrackerStateBase): DeliveryTrackerState => {
+  const invoiceReferences = syncInvoiceStatuses(
+    state.invoiceReferences,
+    state.payments,
+    state.creditNotes,
+  );
+
+  return {
+    ...state,
+    invoiceReferences,
+    customerLedger: buildCustomerLedger({
+      ...state,
+      invoiceReferences,
+    }),
+  };
+};
+
 export const calculateInvoiceOutstanding = (
   invoiceId: string,
   invoices: InvoiceReference[],
@@ -396,21 +415,17 @@ export const createDeliveryRecord = (
       ]
     : state.deliveryProofs;
 
-  const invoices = syncInvoiceStatuses([...state.invoiceReferences, invoice], payments, credits);
-  const nextStateBase = {
+  const nextStateBase: DeliveryTrackerStateBase = {
     ...state,
     deliveryStops: [...state.deliveryStops, stop],
     goodsDelivered: [...state.goodsDelivered, ...goods],
-    invoiceReferences: invoices,
+    invoiceReferences: [...state.invoiceReferences, invoice],
     payments,
     creditNotes: credits,
     deliveryProofs: proofs,
   };
 
-  return {
-    ...nextStateBase,
-    customerLedger: buildCustomerLedger(nextStateBase),
-  };
+  return finalizeDeliveryTrackerState(nextStateBase);
 };
 
 export const buildDashboardMetrics = (state: DeliveryTrackerState) => {

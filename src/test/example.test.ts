@@ -4,7 +4,9 @@ import {
   createDeliveryRecord,
   createSeedState,
   exportRowsToCsv,
+  finalizeDeliveryTrackerState,
 } from "@/lib/delivery-tracker";
+import { getAllowedRoute } from "@/lib/auth";
 
 describe("delivery tracker logic", () => {
   it("calculates invoice outstanding after payments and credits", () => {
@@ -59,5 +61,30 @@ describe("delivery tracker logic", () => {
     expect(exportRowsToCsv([{ customer_name: "Metro Retail", outstanding: 12000 }])).toContain(
       "customer_name,outstanding",
     );
+  });
+
+  it("rebuilds invoice statuses and ledger totals from a base state", () => {
+    const seed = createSeedState();
+    const rebuilt = finalizeDeliveryTrackerState({
+      vehicles: seed.vehicles,
+      customers: seed.customers,
+      deliveryStops: seed.deliveryStops,
+      goodsDelivered: seed.goodsDelivered,
+      invoiceReferences: seed.invoiceReferences.map((invoice) => ({
+        ...invoice,
+        paymentStatus: "Pending",
+      })),
+      payments: seed.payments,
+      creditNotes: seed.creditNotes,
+      deliveryProofs: seed.deliveryProofs,
+    });
+
+    expect(rebuilt.invoiceReferences.find((invoice) => invoice.id === "inv-002")?.paymentStatus).toBe("Paid");
+    expect(rebuilt.customerLedger).toHaveLength(seed.customers.length);
+  });
+
+  it("redirects users to their allowed dashboard route", () => {
+    expect(getAllowedRoute("finance", "/admin")).toBe("/finance");
+    expect(getAllowedRoute("driver", "/driver")).toBe("/driver");
   });
 });

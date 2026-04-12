@@ -38,6 +38,18 @@ npm test
 npm run build
 ```
 
+## Supabase Setup
+
+1. Create a Supabase project.
+2. In the Supabase SQL editor, run [supabase/schema.sql](/Users/kirannair/Documents/New%20project/review_app/swift-route-logi-732c726a58da2aa93df3ea379935753d3ddff160/supabase/schema.sql).
+3. Create a public storage bucket named `delivery-proofs`.
+4. Copy [.env.example](/Users/kirannair/Documents/New%20project/review_app/swift-route-logi-732c726a58da2aa93df3ea379935753d3ddff160/.env.example) to `.env.local` and fill in:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+5. Restart the dev server.
+
+When Supabase is configured, the app loads vehicles, customers, stops, invoice references, payments, credits, and proof metadata from the database. Without it, the app falls back to browser-local demo data.
+
 ## Deployment
 
 This project is ready for static deployment on Vercel or Netlify.

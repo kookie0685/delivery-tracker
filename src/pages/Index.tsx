@@ -17,6 +17,7 @@ import {
   AlertCircle,
   Banknote,
   Camera,
+  LogOut,
   CreditCard,
   FileSpreadsheet,
   MapPin,
@@ -39,6 +40,13 @@ import {
   getVehicleStatusTone,
   listDeliveryRows,
 } from "@/lib/delivery-tracker";
+import {
+  createDeliveryInSupabase,
+  createVehicleInSupabase,
+  loadDeliveryTrackerStateFromSupabase,
+} from "@/lib/supabase-delivery";
+import { getSupabaseConfigError, isSupabaseConfigured as supabaseReady } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 
 const STORAGE_KEY = "delivery-tracker-state-v1";
 const roleOrder: Role[] = ["admin", "driver", "finance"];
@@ -117,6 +125,7 @@ const Index = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const role = parseRole(location.pathname);
+  const { authState, signOut } = useAuth();
 
   const [state, setState] = useState<DeliveryTrackerState>(() => {
     if (typeof window === "undefined") {
@@ -126,6 +135,9 @@ const Index = () => {
     const saved = window.localStorage.getItem(STORAGE_KEY);
     return saved ? (JSON.parse(saved) as DeliveryTrackerState) : createSeedState();
   });
+  const [dataMode, setDataMode] = useState<"local" | "supabase">(supabaseReady ? "supabase" : "local");
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const [driverId, setDriverId] = useState<DriverRole>("drv-001");
   const [vehicleForm, setVehicleForm] = useState({
@@ -157,14 +169,34 @@ const Index = () => {
   });
 
   useEffect(() => {
+    if (supabaseReady) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
   useEffect(() => {
-    if (location.pathname === "/") {
-      navigate("/admin", { replace: true });
+    if (!supabaseReady) {
+      setDataMode("local");
+      return;
     }
-  }, [location.pathname, navigate]);
+
+    const loadCloudState = async () => {
+      setIsSyncing(true);
+      setSyncError(null);
+
+      try {
+        const cloudState = await loadDeliveryTrackerStateFromSupabase();
+        setState(cloudState);
+        setDataMode("supabase");
+      } catch (error) {
+        setDataMode("local");
+        setSyncError(error instanceof Error ? error.message : "Unable to load Supabase data");
+      } finally {
+        setIsSyncing(false);
+      }
+    };
+
+    void loadCloudState();
+  }, []);
 
   const dashboard = useMemo(() => buildDashboardMetrics(state), [state]);
   const ledgerRows = useMemo(() => state.customerLedger, [state.customerLedger]);
@@ -219,11 +251,10 @@ const Index = () => {
       .reduce((sum, payment) => sum + payment.amountReceived, 0),
   }));
 
-  const handleVehicleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleVehicleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     const vehicle = {
-      id: `veh-${crypto.randomUUID()}`,
       vehicleNumber: vehicleForm.vehicleNumber,
       driverName: vehicleForm.driverName,
       driverPhone: vehicleForm.driverPhone,
@@ -231,10 +262,26 @@ const Index = () => {
       driverId: `drv-${crypto.randomUUID()}`,
     };
 
-    setState((current) => ({
-      ...current,
-      vehicles: [...current.vehicles, vehicle],
-    }));
+    try {
+      setIsSyncing(true);
+      setSyncError(null);
+
+      if (supabaseReady) {
+        await createVehicleInSupabase(vehicle);
+        const cloudState = await loadDeliveryTrackerStateFromSupabase();
+        setState(cloudState);
+        setDataMode("supabase");
+      } else {
+        setState((current) => ({
+          ...current,
+          vehicles: [...current.vehicles, { ...vehicle, id: `veh-${crypto.randomUUID()}` }],
+        }));
+      }
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : "Unable to save vehicle");
+    } finally {
+      setIsSyncing(false);
+    }
 
     setVehicleForm({
       vehicleNumber: "",
@@ -244,51 +291,67 @@ const Index = () => {
     });
   };
 
-  const handleDeliverySubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleDeliverySubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    setState((current) =>
-      createDeliveryRecord(current, {
-        vehicleId: deliveryForm.vehicleId,
-        customerId: deliveryForm.customerId,
-        location: deliveryForm.location,
-        arrivalTime: deliveryForm.arrivalTime,
-        departureTime: deliveryForm.departureTime,
-        deliveryStatus: deliveryForm.deliveryStatus,
-        goods: [
-          {
-            productName: deliveryForm.productName,
-            quantity: Number(deliveryForm.quantity),
-            deliveryDate: deliveryForm.deliveryDate,
-          },
-        ],
-        invoiceReference: deliveryForm.invoiceReference,
-        invoiceAmount: Number(deliveryForm.invoiceAmount),
-        invoiceDate: deliveryForm.invoiceDate,
-        payment:
-          Number(deliveryForm.amountReceived) > 0
-            ? {
-                paymentMethod: deliveryForm.paymentMethod,
-                amountReceived: Number(deliveryForm.amountReceived),
-                paymentDate: deliveryForm.paymentDate,
-              }
-            : null,
-        credit:
-          Number(deliveryForm.creditAmount) > 0
-            ? {
-                creditAmount: Number(deliveryForm.creditAmount),
-                reason: deliveryForm.creditReason,
-              }
-            : null,
-        proof:
-          deliveryForm.proofImage && deliveryForm.proofName
-            ? {
-                fileName: deliveryForm.proofName,
-                imageDataUrl: deliveryForm.proofImage,
-              }
-            : null,
-      }),
-    );
+    const payload = {
+      vehicleId: deliveryForm.vehicleId,
+      customerId: deliveryForm.customerId,
+      location: deliveryForm.location,
+      arrivalTime: deliveryForm.arrivalTime,
+      departureTime: deliveryForm.departureTime,
+      deliveryStatus: deliveryForm.deliveryStatus,
+      goods: [
+        {
+          productName: deliveryForm.productName,
+          quantity: Number(deliveryForm.quantity),
+          deliveryDate: deliveryForm.deliveryDate,
+        },
+      ],
+      invoiceReference: deliveryForm.invoiceReference,
+      invoiceAmount: Number(deliveryForm.invoiceAmount),
+      invoiceDate: deliveryForm.invoiceDate,
+      payment:
+        Number(deliveryForm.amountReceived) > 0
+          ? {
+              paymentMethod: deliveryForm.paymentMethod,
+              amountReceived: Number(deliveryForm.amountReceived),
+              paymentDate: deliveryForm.paymentDate,
+            }
+          : null,
+      credit:
+        Number(deliveryForm.creditAmount) > 0
+          ? {
+              creditAmount: Number(deliveryForm.creditAmount),
+              reason: deliveryForm.creditReason,
+            }
+          : null,
+      proof:
+        deliveryForm.proofImage && deliveryForm.proofName
+          ? {
+              fileName: deliveryForm.proofName,
+              imageDataUrl: deliveryForm.proofImage,
+            }
+          : null,
+    };
+
+    try {
+      setIsSyncing(true);
+      setSyncError(null);
+
+      if (supabaseReady) {
+        await createDeliveryInSupabase(payload);
+        const cloudState = await loadDeliveryTrackerStateFromSupabase();
+        setState(cloudState);
+        setDataMode("supabase");
+      } else {
+        setState((current) => createDeliveryRecord(current, payload));
+      }
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : "Unable to save delivery");
+    } finally {
+      setIsSyncing(false);
+    }
 
     setDeliveryForm((current) => ({
       ...current,
@@ -358,6 +421,16 @@ const Index = () => {
                     {roleTitles[item]}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    void signOut().then(() => navigate("/login"));
+                  }}
+                  className={`${buttonClass} border border-white/20 bg-white/10 text-white hover:bg-white/15`}
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Sign Out
+                </button>
               </div>
             </div>
 
@@ -366,6 +439,12 @@ const Index = () => {
                 <p className="text-xs uppercase tracking-[0.25em] text-emerald-50/70">Current Workspace</p>
                 <h2 className="mt-2 text-2xl font-semibold">{roleTitles[role]}</h2>
                 <p className="mt-2 text-sm text-emerald-50/80">{roleDescriptions[role]}</p>
+                {authState && (
+                  <p className="mt-3 text-sm text-emerald-50/85">
+                    Signed in as {authState.fullName}
+                    {authState.email ? ` (${authState.email})` : ""}
+                  </p>
+                )}
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="rounded-3xl bg-white/10 p-4">
@@ -384,6 +463,25 @@ const Index = () => {
         </header>
 
         <main className="mt-8 space-y-8">
+          <section className="grid gap-4 lg:grid-cols-[1fr_auto]">
+            <div className="rounded-[24px] border border-white/60 bg-white/85 px-5 py-4 text-sm text-slate-700 shadow-[0_20px_60px_rgba(18,53,36,0.08)]">
+              <p className="font-semibold text-slate-950">
+                {dataMode === "supabase" ? "Supabase connected" : "Demo mode active"}
+              </p>
+              <p className="mt-1">
+                {dataMode === "supabase"
+                  ? "This app is loading live data from Supabase tables and storage."
+                  : getSupabaseConfigError() ??
+                    "Using seeded browser data until Supabase environment variables are configured."}
+              </p>
+              {syncError && <p className="mt-2 text-rose-600">{syncError}</p>}
+            </div>
+            <div className="rounded-[24px] border border-white/60 bg-white/85 px-5 py-4 text-sm text-slate-700 shadow-[0_20px_60px_rgba(18,53,36,0.08)]">
+              <p className="font-semibold text-slate-950">Sync status</p>
+              <p className="mt-1">{isSyncing ? "Saving or loading cloud data..." : "Ready"}</p>
+            </div>
+          </section>
+
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {roleStats.map((stat) => (
               <StatCard key={stat.label} {...stat} />
