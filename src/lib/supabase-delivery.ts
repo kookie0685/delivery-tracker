@@ -1,4 +1,5 @@
 import {
+  Customer,
   DeliveryInput,
   DeliveryTrackerState,
   DeliveryTrackerStateBase,
@@ -149,6 +150,19 @@ export const createVehicleInSupabase = async (
     driver_phone: vehicle.driverPhone,
     status: vehicle.status,
     driver_id: vehicle.driverId,
+  });
+
+  assertNoError(error);
+};
+
+export const createCustomerInSupabase = async (
+  customer: Omit<Customer, "id">,
+): Promise<void> => {
+  const client = ensureSupabase();
+  const { error } = await client.from("customers").insert({
+    customer_name: customer.customerName,
+    location: customer.location,
+    phone: customer.phone,
   });
 
   assertNoError(error);

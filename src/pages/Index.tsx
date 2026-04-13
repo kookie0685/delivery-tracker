@@ -14,6 +14,7 @@ import {
   YAxis,
 } from "recharts";
 import {
+  Building2,
   AlertCircle,
   Banknote,
   Camera,
@@ -41,6 +42,7 @@ import {
   listDeliveryRows,
 } from "@/lib/delivery-tracker";
 import {
+  createCustomerInSupabase,
   createDeliveryInSupabase,
   createVehicleInSupabase,
   loadDeliveryTrackerStateFromSupabase,
@@ -145,6 +147,11 @@ const Index = () => {
     driverName: "",
     driverPhone: "",
     status: "Active",
+  });
+  const [customerForm, setCustomerForm] = useState({
+    customerName: "",
+    location: "",
+    phone: "",
   });
   const [deliveryForm, setDeliveryForm] = useState({
     vehicleId: "veh-001",
@@ -364,6 +371,49 @@ const Index = () => {
     }));
   };
 
+  const handleCustomerSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const customer = {
+      customerName: customerForm.customerName,
+      location: customerForm.location,
+      phone: customerForm.phone,
+    };
+
+    try {
+      setIsSyncing(true);
+      setSyncError(null);
+
+      if (supabaseReady) {
+        await createCustomerInSupabase(customer);
+        const cloudState = await loadDeliveryTrackerStateFromSupabase();
+        setState(cloudState);
+        setDataMode("supabase");
+      } else {
+        setState((current) => ({
+          ...current,
+          customers: [
+            ...current.customers,
+            {
+              id: `cust-${crypto.randomUUID()}`,
+              ...customer,
+            },
+          ],
+        }));
+      }
+
+      setCustomerForm({
+        customerName: "",
+        location: "",
+        phone: "",
+      });
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : "Unable to save customer");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleProofUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -550,7 +600,8 @@ const Index = () => {
           </section>
 
           {role === "admin" && (
-            <div className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
+            <div className="space-y-8">
+              <div className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
               <SectionCard
                 title="Vehicle & Driver Management"
                 description="Maintain fleet assignment records and vehicle availability."
@@ -663,6 +714,72 @@ const Index = () => {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              </SectionCard>
+              </div>
+
+              <SectionCard
+                title="Customer Management"
+                description="Add customers from the admin dashboard so drivers and finance can work with live accounts."
+              >
+                <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="text-slate-500">
+                        <tr>
+                          <th className="pb-3">Customer</th>
+                          <th className="pb-3">Location</th>
+                          <th className="pb-3">Phone</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {state.customers.map((customer) => (
+                          <tr key={customer.id} className="border-t border-slate-200/80">
+                            <td className="py-3 font-medium text-slate-900">{customer.customerName}</td>
+                            <td className="py-3">{customer.location}</td>
+                            <td className="py-3">{customer.phone}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <form onSubmit={handleCustomerSubmit} className="space-y-3 rounded-[28px] bg-slate-50 p-4">
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-5 w-5 text-emerald-700" />
+                      <h3 className="text-lg font-semibold text-slate-900">Add Customer</h3>
+                    </div>
+                    <input
+                      required
+                      value={customerForm.customerName}
+                      onChange={(event) =>
+                        setCustomerForm((current) => ({ ...current, customerName: event.target.value }))
+                      }
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3"
+                      placeholder="Customer name"
+                    />
+                    <input
+                      required
+                      value={customerForm.location}
+                      onChange={(event) =>
+                        setCustomerForm((current) => ({ ...current, location: event.target.value }))
+                      }
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3"
+                      placeholder="Customer location"
+                    />
+                    <input
+                      required
+                      value={customerForm.phone}
+                      onChange={(event) =>
+                        setCustomerForm((current) => ({ ...current, phone: event.target.value }))
+                      }
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3"
+                      placeholder="Customer phone"
+                    />
+                    <button type="submit" className={`${buttonClass} w-full bg-emerald-950 text-white`}>
+                      Save Customer
+                    </button>
+                  </form>
                 </div>
               </SectionCard>
             </div>
