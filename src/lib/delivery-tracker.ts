@@ -76,6 +76,15 @@ export type DeliveryProof = {
   imageDataUrl: string;
 };
 
+export type AppUser = {
+  id: string;
+  fullName: string;
+  phone: string;
+  role: Role;
+  email?: string;
+  authUserId?: string;
+};
+
 export type DeliveryTrackerState = {
   vehicles: Vehicle[];
   customers: Customer[];
@@ -86,6 +95,7 @@ export type DeliveryTrackerState = {
   creditNotes: CreditNote[];
   customerLedger: CustomerLedger[];
   deliveryProofs: DeliveryProof[];
+  appUsers: AppUser[];
 };
 
 export type DeliveryTrackerStateBase = Omit<DeliveryTrackerState, "customerLedger">;
@@ -283,6 +293,30 @@ export const createSeedState = (): DeliveryTrackerState => {
     },
   ];
 
+  const appUsers: AppUser[] = [
+    {
+      id: "user-001",
+      fullName: "Demo Admin",
+      phone: "+91 90000 10001",
+      role: "admin",
+      email: "admin@deliverytracker.local",
+    },
+    {
+      id: "user-002",
+      fullName: "Rajesh Kumar",
+      phone: "+91 98450 11001",
+      role: "driver",
+      email: "driver@deliverytracker.local",
+    },
+    {
+      id: "user-003",
+      fullName: "Priya Finance",
+      phone: "+91 90000 10003",
+      role: "finance",
+      email: "finance@deliverytracker.local",
+    },
+  ];
+
   const customerLedger = buildCustomerLedger({
     vehicles,
     customers,
@@ -292,6 +326,7 @@ export const createSeedState = (): DeliveryTrackerState => {
     payments,
     creditNotes,
     deliveryProofs,
+    appUsers,
   });
 
   return {
@@ -304,6 +339,7 @@ export const createSeedState = (): DeliveryTrackerState => {
     creditNotes,
     customerLedger,
     deliveryProofs,
+    appUsers,
   };
 };
 
@@ -423,6 +459,7 @@ export const createDeliveryRecord = (
     payments,
     creditNotes: credits,
     deliveryProofs: proofs,
+    appUsers: state.appUsers,
   };
 
   return finalizeDeliveryTrackerState(nextStateBase);
@@ -548,3 +585,133 @@ export const formatCurrency = (amount: number) =>
     currency: "INR",
     maximumFractionDigits: 0,
   }).format(amount);
+
+export const updateVehicleRecord = (
+  state: DeliveryTrackerState,
+  vehicleId: string,
+  updates: Omit<Vehicle, "id">,
+) => ({
+  ...state,
+  vehicles: state.vehicles.map((vehicle) =>
+    vehicle.id === vehicleId ? { id: vehicle.id, ...updates } : vehicle,
+  ),
+});
+
+export const deleteVehicleRecord = (state: DeliveryTrackerState, vehicleId: string) => {
+  if (state.deliveryStops.some((stop) => stop.vehicleId === vehicleId)) {
+    throw new Error("This vehicle is already linked to delivery stops and cannot be deleted.");
+  }
+
+  return {
+    ...state,
+    vehicles: state.vehicles.filter((vehicle) => vehicle.id !== vehicleId),
+  };
+};
+
+export const updateCustomerRecord = (
+  state: DeliveryTrackerState,
+  customerId: string,
+  updates: Omit<Customer, "id">,
+) => ({
+  ...state,
+  customers: state.customers.map((customer) =>
+    customer.id === customerId ? { id: customer.id, ...updates } : customer,
+  ),
+});
+
+export const deleteCustomerRecord = (state: DeliveryTrackerState, customerId: string) => {
+  if (state.deliveryStops.some((stop) => stop.customerId === customerId)) {
+    throw new Error("This customer is already linked to delivery stops and cannot be deleted.");
+  }
+
+  return finalizeDeliveryTrackerState({
+    ...state,
+    customers: state.customers.filter((customer) => customer.id !== customerId),
+    vehicles: state.vehicles,
+    deliveryStops: state.deliveryStops,
+    goodsDelivered: state.goodsDelivered,
+    invoiceReferences: state.invoiceReferences,
+    payments: state.payments,
+    creditNotes: state.creditNotes,
+    deliveryProofs: state.deliveryProofs,
+    appUsers: state.appUsers,
+  });
+};
+
+export const createManualPaymentRecord = (
+  state: DeliveryTrackerState,
+  input: {
+    invoiceId: string;
+    paymentMethod: PaymentMethod;
+    amountReceived: number;
+    paymentDate: string;
+  },
+) =>
+  finalizeDeliveryTrackerState({
+    ...state,
+    vehicles: state.vehicles,
+    customers: state.customers,
+    deliveryStops: state.deliveryStops,
+    goodsDelivered: state.goodsDelivered,
+    invoiceReferences: state.invoiceReferences,
+    payments: [
+      ...state.payments,
+      {
+        id: makeId("pay"),
+        invoiceId: input.invoiceId,
+        paymentMethod: input.paymentMethod,
+        amountReceived: input.amountReceived,
+        paymentDate: input.paymentDate,
+      },
+    ],
+    creditNotes: state.creditNotes,
+    deliveryProofs: state.deliveryProofs,
+    appUsers: state.appUsers,
+  });
+
+export const updateDeliveryStopRecord = (
+  state: DeliveryTrackerState,
+  input: {
+    stopId: string;
+    location: string;
+    arrivalTime: string;
+    departureTime: string;
+    deliveryStatus: string;
+  },
+) =>
+  finalizeDeliveryTrackerState({
+    ...state,
+    vehicles: state.vehicles,
+    customers: state.customers,
+    deliveryStops: state.deliveryStops.map((stop) =>
+      stop.id === input.stopId
+        ? {
+            ...stop,
+            location: input.location,
+            arrivalTime: input.arrivalTime,
+            departureTime: input.departureTime,
+            deliveryStatus: input.deliveryStatus,
+          }
+        : stop,
+    ),
+    goodsDelivered: state.goodsDelivered,
+    invoiceReferences: state.invoiceReferences,
+    payments: state.payments,
+    creditNotes: state.creditNotes,
+    deliveryProofs: state.deliveryProofs,
+    appUsers: state.appUsers,
+  });
+
+export const createAppUserRecord = (
+  state: DeliveryTrackerState,
+  input: Omit<AppUser, "id">,
+) => ({
+  ...state,
+  appUsers: [
+    ...state.appUsers,
+    {
+      id: makeId("user"),
+      ...input,
+    },
+  ],
+});

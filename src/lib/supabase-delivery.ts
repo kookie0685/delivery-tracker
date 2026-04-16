@@ -1,4 +1,5 @@
 import {
+  AppUser,
   Customer,
   DeliveryInput,
   DeliveryTrackerState,
@@ -55,6 +56,7 @@ export const loadDeliveryTrackerStateFromSupabase = async (): Promise<DeliveryTr
     paymentsResult,
     creditsResult,
     proofsResult,
+    usersResult,
   ] = await Promise.all([
     client.from("vehicles").select("*").order("created_at", { ascending: true }),
     client.from("customers").select("*").order("created_at", { ascending: true }),
@@ -64,6 +66,7 @@ export const loadDeliveryTrackerStateFromSupabase = async (): Promise<DeliveryTr
     client.from("payments").select("*").order("payment_date", { ascending: true }),
     client.from("credit_notes").select("*").order("created_at", { ascending: true }),
     client.from("delivery_proofs").select("*").order("created_at", { ascending: true }),
+    client.from("profiles").select("*").order("created_at", { ascending: true }),
   ]);
 
   [
@@ -75,6 +78,7 @@ export const loadDeliveryTrackerStateFromSupabase = async (): Promise<DeliveryTr
     paymentsResult.error,
     creditsResult.error,
     proofsResult.error,
+    usersResult.error,
   ].forEach((error) => assertNoError(error));
 
   const stateBase: DeliveryTrackerStateBase = {
@@ -135,6 +139,14 @@ export const loadDeliveryTrackerStateFromSupabase = async (): Promise<DeliveryTr
       fileName: proof.file_name,
       imageDataUrl: proof.file_url,
     })),
+    appUsers: (usersResult.data ?? []).map((user) => ({
+      id: user.id,
+      fullName: user.full_name,
+      phone: user.phone ?? "",
+      role: user.role,
+      email: "",
+      authUserId: user.id,
+    })),
   };
 
   return finalizeDeliveryTrackerState(stateBase);
@@ -155,6 +167,31 @@ export const createVehicleInSupabase = async (
   assertNoError(error);
 };
 
+export const updateVehicleInSupabase = async (
+  vehicleId: string,
+  vehicle: Omit<Vehicle, "id">,
+): Promise<void> => {
+  const client = ensureSupabase();
+  const { error } = await client
+    .from("vehicles")
+    .update({
+      vehicle_number: vehicle.vehicleNumber,
+      driver_name: vehicle.driverName,
+      driver_phone: vehicle.driverPhone,
+      status: vehicle.status,
+      driver_id: vehicle.driverId,
+    })
+    .eq("id", vehicleId);
+
+  assertNoError(error);
+};
+
+export const deleteVehicleInSupabase = async (vehicleId: string): Promise<void> => {
+  const client = ensureSupabase();
+  const { error } = await client.from("vehicles").delete().eq("id", vehicleId);
+  assertNoError(error);
+};
+
 export const createCustomerInSupabase = async (
   customer: Omit<Customer, "id">,
 ): Promise<void> => {
@@ -164,6 +201,86 @@ export const createCustomerInSupabase = async (
     location: customer.location,
     phone: customer.phone,
   });
+
+  assertNoError(error);
+};
+
+export const updateCustomerInSupabase = async (
+  customerId: string,
+  customer: Omit<Customer, "id">,
+): Promise<void> => {
+  const client = ensureSupabase();
+  const { error } = await client
+    .from("customers")
+    .update({
+      customer_name: customer.customerName,
+      location: customer.location,
+      phone: customer.phone,
+    })
+    .eq("id", customerId);
+
+  assertNoError(error);
+};
+
+export const deleteCustomerInSupabase = async (customerId: string): Promise<void> => {
+  const client = ensureSupabase();
+  const { error } = await client.from("customers").delete().eq("id", customerId);
+  assertNoError(error);
+};
+
+export const createAppUserInSupabase = async (
+  user: Omit<AppUser, "id">,
+): Promise<void> => {
+  const client = ensureSupabase();
+
+  if (!user.authUserId) {
+    throw new Error("Supabase mode requires an Auth User ID to create a profile record.");
+  }
+
+  const { error } = await client.from("profiles").insert({
+    id: user.authUserId,
+    full_name: user.fullName,
+    phone: user.phone,
+    role: user.role,
+  });
+
+  assertNoError(error);
+};
+
+export const createManualPaymentInSupabase = async (input: {
+  invoiceId: string;
+  paymentMethod: string;
+  amountReceived: number;
+  paymentDate: string;
+}): Promise<void> => {
+  const client = ensureSupabase();
+  const { error } = await client.from("payments").insert({
+    invoice_id: input.invoiceId,
+    payment_method: input.paymentMethod,
+    amount_received: input.amountReceived,
+    payment_date: input.paymentDate,
+  });
+
+  assertNoError(error);
+};
+
+export const updateDeliveryStopInSupabase = async (input: {
+  stopId: string;
+  location: string;
+  arrivalTime: string;
+  departureTime: string;
+  deliveryStatus: string;
+}): Promise<void> => {
+  const client = ensureSupabase();
+  const { error } = await client
+    .from("delivery_stops")
+    .update({
+      location: input.location,
+      arrival_time: input.arrivalTime,
+      departure_time: input.departureTime,
+      delivery_status: input.deliveryStatus,
+    })
+    .eq("id", input.stopId);
 
   assertNoError(error);
 };
