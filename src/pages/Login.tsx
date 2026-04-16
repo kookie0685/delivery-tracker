@@ -1,30 +1,22 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { CreditCard, ShieldCheck, Truck, Wallet } from "lucide-react";
-import { Role } from "@/lib/delivery-tracker";
+import { AlertCircle, CreditCard, ShieldCheck, Truck, Wallet } from "lucide-react";
 import { getDefaultRouteForRole, useAuth } from "@/lib/auth";
+import { getSupabaseConfigError, isSupabaseConfigured } from "@/lib/supabase";
 
-const demoRoles: Array<{
-  role: Role;
-  title: string;
-  description: string;
-  icon: typeof ShieldCheck;
-}> = [
+const roleCards = [
   {
-    role: "admin",
     title: "Admin Access",
     description: "Manage fleet, monitor delivery operations, and review payment performance.",
     icon: ShieldCheck,
   },
   {
-    role: "driver",
     title: "Driver Access",
     description: "Capture stops, goods delivered, payment collections, and proof images on mobile.",
     icon: Truck,
   },
   {
-    role: "finance",
     title: "Finance Access",
     description: "Track collections, credits, customer ledgers, and outstanding balances.",
     icon: Wallet,
@@ -33,7 +25,7 @@ const demoRoles: Array<{
 
 const Login = () => {
   const navigate = useNavigate();
-  const { authMode, authState, signInAsDemoRole, signInWithPassword } = useAuth();
+  const { authState, signInWithPassword } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -61,11 +53,6 @@ const Login = () => {
     setIsSubmitting(false);
   };
 
-  const enterDemoRole = (role: Role) => {
-    signInAsDemoRole(role);
-    navigate(getDefaultRouteForRole(role));
-  };
-
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,_rgba(133,169,71,0.22),_transparent_28%),linear-gradient(180deg,_#f7f8f4_0%,_#edf5ef_40%,_#f7f8f4_100%)] px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl">
@@ -84,8 +71,8 @@ const Login = () => {
             </p>
 
             <div className="mt-8 grid gap-4">
-              {demoRoles.map(({ role, title, description, icon: Icon }) => (
-                <div key={role} className="rounded-[28px] border border-white/10 bg-white/10 p-5">
+              {roleCards.map(({ title, description, icon: Icon }) => (
+                <div key={title} className="rounded-[28px] border border-white/10 bg-white/10 p-5">
                   <div className="flex items-start gap-4">
                     <span className="rounded-2xl bg-white/10 p-3">
                       <Icon className="h-5 w-5" />
@@ -102,20 +89,14 @@ const Login = () => {
 
           <section className="rounded-[36px] border border-white/60 bg-white/90 p-6 shadow-[0_24px_80px_rgba(18,53,36,0.08)] backdrop-blur lg:p-8">
             <div>
-              <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">
-                {authMode === "supabase" ? "Cloud Access" : "Demo Access"}
-              </p>
-              <h2 className="mt-3 text-3xl font-semibold text-slate-950">
-                {authMode === "supabase" ? "Sign in with your work account" : "Choose a role to explore"}
-              </h2>
+              <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">Cloud Access</p>
+              <h2 className="mt-3 text-3xl font-semibold text-slate-950">Sign in with your work account</h2>
               <p className="mt-3 text-sm text-slate-600">
-                {authMode === "supabase"
-                  ? "Use the email and password from your Supabase-authenticated team account."
-                  : "Supabase auth is not configured yet, so you can enter through a demo role dashboard."}
+                Use the email and password from your Supabase-authenticated team account.
               </p>
             </div>
 
-            {authMode === "supabase" ? (
+            {isSupabaseConfigured ? (
               <form onSubmit={handleSupabaseLogin} className="mt-8 space-y-4">
                 <input
                   type="email"
@@ -143,18 +124,20 @@ const Login = () => {
                 </button>
               </form>
             ) : (
-              <div className="mt-8 grid gap-4">
-                {demoRoles.map(({ role, title, description }) => (
-                  <button
-                    key={role}
-                    type="button"
-                    onClick={() => enterDemoRole(role)}
-                    className="rounded-[28px] border border-slate-200 bg-slate-50 p-5 text-left transition hover:border-emerald-300 hover:bg-emerald-50"
-                  >
-                    <p className="text-lg font-semibold text-slate-950">{title}</p>
-                    <p className="mt-1 text-sm text-slate-600">{description}</p>
-                  </button>
-                ))}
+              <div className="mt-8 rounded-[28px] border border-amber-200 bg-amber-50 p-5">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="mt-0.5 h-5 w-5 text-amber-700" />
+                  <div>
+                    <p className="font-semibold text-slate-950">Deployment setup incomplete</p>
+                    <p className="mt-2 text-sm text-slate-700">
+                      {getSupabaseConfigError() ??
+                        "Supabase environment variables are missing, so production login is unavailable."}
+                    </p>
+                    <p className="mt-2 text-sm text-slate-700">
+                      Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in Vercel, then redeploy.
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
           </section>

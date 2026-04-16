@@ -1,15 +1,8 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { Role } from "@/lib/delivery-tracker";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
-
-const DEMO_AUTH_KEY = "delivery-tracker-demo-auth";
 
 export type AuthState = {
   fullName: string;
@@ -18,11 +11,9 @@ export type AuthState = {
 };
 
 type AuthContextValue = {
-  authMode: "demo" | "supabase";
   authState: AuthState | null;
   isLoading: boolean;
   signInWithPassword: (email: string, password: string) => Promise<{ error: string | null }>;
-  signInAsDemoRole: (role: Role) => void;
   signOut: () => Promise<void>;
 };
 
@@ -35,25 +26,9 @@ export const getAllowedRoute = (role: Role, pathname: string) => {
   return normalized === role ? pathname : getDefaultRouteForRole(role);
 };
 
-const readDemoAuth = (): AuthState | null => {
-  if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(DEMO_AUTH_KEY);
-  return raw ? (JSON.parse(raw) as AuthState) : null;
-};
-
-const writeDemoAuth = (authState: AuthState | null) => {
-  if (typeof window === "undefined") return;
-
-  if (!authState) {
-    window.localStorage.removeItem(DEMO_AUTH_KEY);
-    return;
-  }
-
-  window.localStorage.setItem(DEMO_AUTH_KEY, JSON.stringify(authState));
-};
-
 const fetchProfile = async (userId: string): Promise<AuthState | null> => {
   if (!supabase) return null;
+
   const { data, error } = await supabase
     .from("profiles")
     .select("full_name, role")
@@ -86,7 +61,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) {
-      setAuthState(readDemoAuth());
+      setAuthState(null);
       setIsLoading(false);
       return;
     }
@@ -137,33 +112,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return { error: null };
   };
 
-  const signInAsDemoRole = (role: Role) => {
-    const nextAuthState: AuthState = {
-      fullName:
-        role === "admin" ? "Demo Admin" : role === "driver" ? "Demo Driver" : "Demo Finance",
-      role,
-    };
-    writeDemoAuth(nextAuthState);
-    setAuthState(nextAuthState);
-  };
-
   const signOut = async () => {
     if (supabase) {
       await supabase.auth.signOut();
     }
 
-    writeDemoAuth(null);
     setAuthState(null);
   };
 
   return (
     <AuthContext.Provider
       value={{
-        authMode: isSupabaseConfigured ? "supabase" : "demo",
         authState,
         isLoading,
         signInWithPassword,
-        signInAsDemoRole,
         signOut,
       }}
     >

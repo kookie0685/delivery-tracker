@@ -69,7 +69,6 @@ import {
 import { getSupabaseConfigError, isSupabaseConfigured as supabaseReady } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 
-const STORAGE_KEY = "delivery-tracker-state-v1";
 const roleOrder: Role[] = ["admin", "driver", "finance"];
 const paymentMethods: PaymentMethod[] = ["Cash", "UPI", "Bank Transfer", "Card", "Credit"];
 const palette = ["#123524", "#3E7B55", "#85A947", "#F4C95D", "#D95D39"];
@@ -148,15 +147,7 @@ const Index = () => {
   const role = parseRole(location.pathname);
   const { authState, signOut } = useAuth();
 
-  const [state, setState] = useState<DeliveryTrackerState>(() => {
-    if (typeof window === "undefined") {
-      return createSeedState();
-    }
-
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    return saved ? (JSON.parse(saved) as DeliveryTrackerState) : createSeedState();
-  });
-  const [dataMode, setDataMode] = useState<"local" | "supabase">(supabaseReady ? "supabase" : "local");
+  const [state, setState] = useState<DeliveryTrackerState | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
 
@@ -217,13 +208,9 @@ const Index = () => {
   });
 
   useEffect(() => {
-    if (supabaseReady) return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
-
-  useEffect(() => {
     if (!supabaseReady) {
-      setDataMode("local");
+      setState(null);
+      setSyncError(getSupabaseConfigError());
       return;
     }
 
@@ -234,9 +221,7 @@ const Index = () => {
       try {
         const cloudState = await loadDeliveryTrackerStateFromSupabase();
         setState(cloudState);
-        setDataMode("supabase");
       } catch (error) {
-        setDataMode("local");
         setSyncError(error instanceof Error ? error.message : "Unable to load Supabase data");
       } finally {
         setIsSyncing(false);
@@ -247,13 +232,44 @@ const Index = () => {
   }, []);
 
   useEffect(() => {
+    if (!state) return;
     if (!paymentForm.invoiceId && state.invoiceReferences[0]) {
       setPaymentForm((current) => ({
         ...current,
         invoiceId: state.invoiceReferences[0].id,
       }));
     }
-  }, [paymentForm.invoiceId, state.invoiceReferences]);
+  }, [paymentForm.invoiceId, state]);
+
+  if (!supabaseReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,_#f6f7f2_0%,_#eef4ef_35%,_#f9faf7_100%)] px-4">
+        <div className="max-w-xl rounded-[32px] border border-amber-200 bg-white p-8 shadow-[0_20px_60px_rgba(18,53,36,0.08)]">
+          <h1 className="text-2xl font-semibold text-slate-950">Production setup incomplete</h1>
+          <p className="mt-3 text-sm text-slate-700">
+            {getSupabaseConfigError() ??
+              "Supabase configuration is required for this deployment."}
+          </p>
+          <p className="mt-2 text-sm text-slate-700">
+            Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in Vercel, then redeploy.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!state) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,_#f6f7f2_0%,_#eef4ef_35%,_#f9faf7_100%)] px-4">
+        <div className="max-w-xl rounded-[32px] border border-white/60 bg-white p-8 shadow-[0_20px_60px_rgba(18,53,36,0.08)]">
+          <h1 className="text-2xl font-semibold text-slate-950">Loading live delivery data</h1>
+          <p className="mt-3 text-sm text-slate-700">
+            {syncError ?? "Connecting to Supabase and fetching operational data."}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const dashboard = useMemo(() => buildDashboardMetrics(state), [state]);
   const ledgerRows = useMemo(() => state.customerLedger, [state.customerLedger]);
@@ -311,7 +327,6 @@ const Index = () => {
   const reloadCloudState = async () => {
     const cloudState = await loadDeliveryTrackerStateFromSupabase();
     setState(cloudState);
-    setDataMode("supabase");
   };
 
   const handleVehicleSubmit = async (event: FormEvent<HTMLFormElement>) => {
